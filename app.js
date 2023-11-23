@@ -3,12 +3,12 @@ const path = require('path')
 const mongoose = require('mongoose')
 const ejsMate = require('ejs-mate')
 const Joi = require('joi')
-const { campgroundSchema } = require('./schemas.js')
+const { campgroundSchema,reviewSchema } = require('./schemas.js')
 const ExpressError = require('./utils/ExpressError')
 const catchAsyncError = require('./utils/CatchAsyncError')
 const methodOverride = require('method-override')
 const Campground = require('./models/campground')
-
+const Review = require('./models/review')
 
 mongoose.connect('mongodb://127.0.0.1:27017/yelp-camp', {
     useNewUrlParser: true,
@@ -43,7 +43,17 @@ const validateCampground = (req, res, next) => {
         next();
     }
 }
-
+const validateReview= (req, res, next) => {
+    const { error } = reviewSchema.validate(req.body);
+    if (error) {
+        // This line creates a string 'msg' by extracting the 'message' property from each object in the 'error.details' array,
+        // and joining them together with commas.
+        const msg = error.details.map(el => el.message).join(',');
+        throw new ExpressError(msg, 400)
+    } else {
+        next();
+    }
+}
 
 app.get('/', (req, res) => {
     res.render('home')
@@ -71,12 +81,23 @@ app.post('/campgrounds', validateCampground, catchAsyncError(async (req, res) =>
     res.redirect(`/campgrounds/${campground._id}`)
 }))
 
+
+
+
+app.post('/campgrounds/:id/reviews',  catchAsyncError(async (req, res) => {
+    const campground = await Campground.findById(req.params.id);
+    const review = new Review(req.body.review);
+    campground.reviews.push(review)
+    await review.save();
+    await campground.save();
+    res.redirect(`/campgrounds/${campground._id}`)
+
+}))
 //campground show
 app.get('/campgrounds/:id', catchAsyncError(async (req, res,) => {
-    const campground = await Campground.findById(req.params.id)
+    const campground = await Campground.findById(req.params.id).populate('reviews');
     res.render('campgrounds/show', { campground });
 }));
-
 
 //campground EDIT PAGE
 app.get('/campgrounds/:id/edit', catchAsyncError(async (req, res,) => {
@@ -94,9 +115,16 @@ app.put('/campgrounds/:id', validateCampground, catchAsyncError(async (req, res)
 app.delete('/campgrounds/:id', catchAsyncError(async (req, res) => {
     const { id } = req.params;
     await Campground.findByIdAndDelete(id);
-    res.redirect(`/campgrounds`)
+    res.redirect('/campgrounds');
 }));
 
+
+app.delete('/campgrounds/:id/reviews/:reviewId', catchAsyncError(async (req, res) => {
+    const { id, reviewId } = req.params;
+    await Campground.findByIdAndUpdate(id, { $pull: { reviews: reviewId } });
+    await Review.findByIdAndDelete(reviewId);
+    res.redirect(`/campgrounds/${id}`);
+}))
 
 //error for  rutes unknown
 app.all('*', (req, res, next) => {
